@@ -26,4 +26,11 @@
 - docker 주요 명령어 옵션들
 - docker-compose 주요 명령어
 - 개발환경에서 소규모로 k8s 테스트 환경을 위한 minikube 관련 내용들 
+- Terraformer 로 EKS 리버스엔지니어링
+
+
+
+
+
+
 
