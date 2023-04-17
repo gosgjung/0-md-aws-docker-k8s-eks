@@ -1,6 +1,13 @@
 
 
+### 준비물
 
+- iam 계정
+  - 내 경우는 미리 만들어둔 iam 계정이 있다.
+- 사용자 그룹, 정책들
+  - 사용자 그룹에 iam 계정을 추가해둔 상태이고, 이 그룹에 정책들을 연결해둔 상태다.
+  - EKS에 한정해서 추가해둔 정책들에 대해서는 별도의 문서에 모두 정리해둬야 겠다는 생각 중. ㅠㅠ
+  - 사용자 그룹에 대한 개념도 정리해둘까 생각중이다.
 
 
 
@@ -102,6 +109,17 @@ $ docker container run --rm -d -p 8080:8080 --name docker_k8s_app docker_k8s_app
 
 
 
+동작 확인
+
+```bash
+$ curl http://localhost:8080
+Hello World!
+```
+
+
+
+
+
 **이미지 확인**<br>
 
 ```bash
@@ -122,7 +140,9 @@ $ docker container stop docker_k8s_app
 
 
 
-### IAM Role 추가
+### IAM Role 추가한 것들
+
+#### ECS IAM Role 추가
 
 개발자 입장에서 추가한 거라 조금은 필요 없는 권한이 추가되있을 수도 있다. 개발도 빨리해야 하는데, 인프라도 알아야돼 이런건 물리적인 시간을 역행하는 시간여행자식 자본논리인듯 싶다.
 
@@ -188,6 +208,63 @@ $ docker container stop docker_k8s_app
 
 
 
+#### eksctl IAM Role 추가
+
+> 참고자료
+>
+> - [AWS Identity and Access Management을 통한 액세스 제어](https://docs.aws.amazon.com/ko_kr/AWSCloudFormation/latest/UserGuide/using-iam-template.html)
+
+<br>
+
+IAM 사용자 그룹에 SQS, CloudFormation 관련 정책 추가해준다.
+
+실습에서 사용하는 eks-sample 사용자는 eks-sample-user-group 이라는 사용자 그룹에 속하는데, 이 eks-sample-user-group 이라는 사용자 그룹에 SQS, CloudFormation 관련 정책들을 추가해줬다.
+
+정책 JSON 은 아래와 같다.
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "sqs:*",
+                "cloudformation:CreateStack",
+                "cloudformation:DescribeStacks",
+                "cloudformation:DescribeStackEvents",
+                "cloudformation:DescribeStackResources",
+                "cloudformation:GetTemplate",
+                "cloudformation:ValidateTemplate"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+```
+
+
+
+정책 추가 과정
+
+![](./img/STEP1-EKS-HELLO-WORLD/9.png)
+
+
+
+![](./img/STEP1-EKS-HELLO-WORLD/10.png)
+
+
+
+![](./img/STEP1-EKS-HELLO-WORLD/11.png)
+
+
+
+<br>
+
+
+
+
+
 ### ECR 리포지터리 생성
 
 docker_k8s_app_repository
@@ -225,27 +302,59 @@ docker_k8s_app_repository
 각각의 명령어는 아래에 정리해뒀다.
 
 ```bash
-$ aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin 693608546603.dkr.ecr.ap-northeast-2.amazonaws.com
+$ aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin {계정id}.dkr.ecr.ap-northeast-2.amazonaws.com
 
 
 $ docker build -t docker_k8s_app_repository .
 
 
-$ docker tag docker_k8s_app_repository:latest 693608546603.dkr.ecr.ap-northeast-2.amazonaws.com/docker_k8s_app_repository:latest
+$ docker tag docker_k8s_app_repository:latest {계정id}.dkr.ecr.ap-northeast-2.amazonaws.com/docker_k8s_app_repository:latest
 
 
-$ docker push 693608546603.dkr.ecr.ap-northeast-2.amazonaws.com/docker_k8s_app_repository:latest
+$ docker push {계정id}.dkr.ecr.ap-northeast-2.amazonaws.com/docker_k8s_app_repository:latest
 ```
+
+
+
+
 
 
 
 ### eksctl 로 클러스터 생성
 
-클러스터는 웹 콘솔이나 테라폼으로 세부권한을 추가해서 해줄수도 있는데, 일단은 빠른 예제를 위해 아래와 같이 해줬다.
+#### eksctl 로 클러스터 생성시, 비용 과금 유의필요
+
+참고로 클러스터 생성에는 굉장히 오래 걸린다. 내가 직접 경험해본 바로는 20분 이상 걸렸었다. eksctl 사용시 주의해야 할 점 하나는 elastic ip 등 여러가지 부수적인 리소스들이 생성되는 것도 주의해야 한다. 리소스 삭제시에 모두 삭제해주자.
+
+<br>
+
+개인 실습용으로 한다고 해도 돈이 줄줄 새는거라 주의가 필요하다.
+
+<br>
+
+이런 이유로... 테라폼/테라포머로 EKS 리소스들을 추가/관리하는 것 관련해서 예제로 스터디 중인데, 별도의 문서에 정리 중이다. 테라폼/테라포머로 추가하면 리소스의 추가/삭제가 정해둔 것들만 추가하기에 별도의 비용은 내가 AWS에 요청한 리소스 사용량 만큼만 과금된다.
+
+<br>
 
 
 
+#### 클러스터 생성
 
+내가 지정해준 클러스터 이름은 `eksctl-boot-study-1` 이다.
+
+```bash
+$ eksctl create cluster --name eksctl-boot-study-1 --region ap-northeast-2
+```
+
+<br>
+
+
+
+#### 리소스 확인
+
+```bash
+$ kubec
+```
 
 
 
