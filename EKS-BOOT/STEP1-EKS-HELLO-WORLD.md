@@ -350,11 +350,255 @@ $ eksctl create cluster --name eksctl-boot-study-1 --region ap-northeast-2
 
 
 
+생성이 완료된 모습
+
+![](./img/STEP1-EKS-HELLO-WORLD/12.png)
+
+<br>
+
+
+
+웹콘솔
+
+![](./img/STEP1-EKS-HELLO-WORLD/13.png)
+
+<br>
+
+
+
 #### 리소스 확인
 
 ```bash
-$ kubec
+$ kubectl get nodes
+NAME                                                STATUS   ROLES    AGE   VERSION
+ip-{아이피주소}.ap-northeast-2.compute.internal    Ready    <none>   37m   v1.25.7-eks-asdfasdf
+ip-{아이피주소}.ap-northeast-2.compute.internal   Ready    <none>   37m   v1.25.7-eks-asdfasdf
+
+
+$ kubectl get svc
+NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+kubernetes   ClusterIP   {아이피주소}   <none>        443/TCP   47m
 ```
+
+<br>
+
+
+
+### Deployment, LoadBalancer 생성
+
+> Demployment, LoadBalancer 에 대해서는 나중에 따로 정리해두려고 한다.
+>
+> 오늘 문서에서는 단순히 어떻게 하는지만 정리할 것이기에, 실습 명령어만을 정리해두었다.
+
+<br>
+
+아래와 같이 k8s.yaml 파일을 생성 후 정의한다.
+
+k8s.yaml
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eksboot
+spec:
+  selector:
+    matchLabels:
+      app: eksboot
+  template:
+    metadata:
+      labels:
+        app: eksboot
+    spec:
+      containers:
+        - name: eksboot
+          image: 693608546603.dkr.ecr.ap-northeast-2.amazonaws.com/docker_k8s_app_repository
+          resources:
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+          ports:
+            - name: tcp
+              containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eksboot
+spec:
+  selector:
+    app: eksboot
+  ports:
+    - port: 80
+      targetPort: 8080
+  type: LoadBalancer
+```
+
+<br>
+
+
+
+kubectl apply 를 통해 클러스터에 반영하자.
+
+```bash
+$ kubectl apply -f k8s.yaml       
+deployment.apps/eksboot created
+service/eksboot created
+
+
+$ kubectl get pod
+NAME                       READY   STATUS    RESTARTS   AGE
+eksboot-75587d979b-svf2h   1/1     Running   0          2m17s
+
+```
+
+<br>
+
+
+
+클러스터 내부의 pod 에 접속해보자.
+
+이번 예제에서 만든 container 이미지는 알파인 리눅스 기반이기에 /bin/bash 또는 bash 가 설치되어 있지 않다.
+
+경량화된 쉘인 sh 를 통해 접속해야 한다.
+
+```bash
+$ kubectl exec -it eksboot-75587d979b-svf2h -- sh
+/deploy
+```
+
+<br>
+
+
+
+팟 내부에서 ls 를 해보면, layered 하게 구성해놓은 대로 deploy 디렉터리가 구성되어 있음을 확인할 수 있다.
+
+```bash
+/deploy # ls
+BOOT-INF  META-INF  org
+```
+
+<br>
+
+
+
+이제 팟 내부에서 빠져나오자
+
+```bash
+/deploy # exit
+```
+
+<br>
+
+
+
+### Deployment, LoadBlancer 동작 확인
+
+```bash
+$ kubectl get svc
+NAME         TYPE           CLUSTER-IP      EXTERNAL-IP		PORT(S)        AGE
+eksboot      LoadBalancer   10.100.205.20   {아이피주소}		80:31024/TCP   14m
+kubernetes   ClusterIP      10.100.0.1      <none>			443/TCP        68m
+```
+
+
+
+위의 결과물에서 `eksboot` 의 `EXTERNAL-IP` 항목에 대한 아이피 주소를 복사한 후 nslookup 명령을 통해 네트워크가 제대로 세팅되었는지 확인해보자.
+
+```bash
+$ nslookup {아이피주소}
+서버:    router.asus.com
+Address:  192.168.1.1
+
+권한 없는 응답:
+이름:    {아이피주소}
+Addresses:  {아이피주소1}
+          {아이피주소2}
+```
+
+
+
+그리고 kubectl get svc 명령에서 복사해둔 `EXTERNAL-IP` 를 복사해서 curl 명령을 통해 spring boot 로 만든 컨트롤러 API 에 정상적으로 접근되는지 확인해보자.
+
+```bash
+$ curl {아이피주소}
+
+
+StatusCode        : 200
+StatusDescription :
+Content           : Hello World!
+RawContent        : HTTP/1.1 200
+                    Keep-Alive: timeout=60
+                    Connection: keep-alive
+                    Content-Length: 12
+                    Content-Type: text/plain;charset=UTF-8
+                    Date: Mon, 17 Apr 2023 08:04:14 GMT
+
+                    Hello World!
+Forms             : {}
+Headers           : {[Keep-Alive, timeout=60], [Connection, keep-alive], [Content-Length, 12], [Content-Type, text/plain;charset=UTF-8]...}
+Images            : {}
+InputFields       : {}
+Links             : {}
+ParsedHtml        : mshtml.HTMLDocumentClass
+RawContentLength  : 12
+```
+
+
+
+브라우저에서도 접속해보면 아래와 같이 정상임을 확인할 수 있다.
+
+![](./img/STEP1-EKS-HELLO-WORLD/14.png)
+
+
+
+<br>
+
+
+
+### eksctl 로 클러스터 삭제
+
+> 참고: [Amazon EKS 클러스터 삭제](https://docs.aws.amazon.com/ko_kr/eks/latest/userguide/delete-cluster.html)
+
+<br>
+
+실습이 끝난 클러스터는 아래와 같이 삭제 가능하다. 그런데 다음문서에서 다른 예제도 정리할 것이기에, 아직은 삭제를 하지 말자.
+
+명령어를 남겨두는 이유는 그냥... 허전해서 추가했다.
+
+먼저 EXTERNAL-IP 와 관련된 모든 svc 들을 삭제해줘야 한다.
+
+```bash
+$ kubectl delete svc {서비스명}
+```
+
+<br>
+
+
+
+그리고 eksctl 을 통해 클러스터를 삭제해준다.
+
+```bash
+$ eksctl delete cluster --name eksctl-boot-study-1
+```
+
+<br>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
